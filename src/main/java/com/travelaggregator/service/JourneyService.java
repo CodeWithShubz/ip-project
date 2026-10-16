@@ -21,7 +21,6 @@ import java.util.stream.Collectors;
  * Contains all business logic for retrieving and sorting journeys.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class JourneyService {
 
@@ -40,6 +39,10 @@ public class JourneyService {
 
     private final JourneyRepository journeyRepository;
 
+    public JourneyService(JourneyRepository journeyRepository) {
+        this.journeyRepository = journeyRepository;
+    }
+
     /**
      * Main search method: queries DB, applies optional filters and sorting.
      */
@@ -54,6 +57,13 @@ public class JourneyService {
         if (req.getPassengers() < 1)
             req.setPassengers(1);
 
+        String cleanOrigin = cleanCityName(req.getOrigin());
+        String cleanDest   = cleanCityName(req.getDestination());
+
+        if (cleanOrigin.equalsIgnoreCase(cleanDest)) {
+            throw new IllegalArgumentException("Origin and destination cannot be the same");
+        }
+
         // Set default fare range if not specified
         BigDecimal minFare = req.getMinFare() != null ? req.getMinFare() : BigDecimal.ZERO;
         BigDecimal maxFare = req.getMaxFare() != null ? req.getMaxFare() : DEFAULT_MAX_FARE;
@@ -63,11 +73,11 @@ public class JourneyService {
         LocalDateTime endOfDay   = req.getTravelDate().atTime(LocalTime.MAX);
 
         log.info("Searching journeys: {} → {} on {} for {} pax, mode={}, fare={}-{}",
-                req.getOrigin(), req.getDestination(), req.getTravelDate(),
+                cleanOrigin, cleanDest, req.getTravelDate(),
                 req.getPassengers(), req.getTransportMode(), minFare, maxFare);
 
         List<Journey> journeys = journeyRepository.searchJourneys(
-                req.getOrigin().trim(), req.getDestination().trim(),
+                cleanOrigin, cleanDest,
                 startOfDay, endOfDay, req.getPassengers(),
                 req.getTransportMode(), minFare, maxFare);
 
@@ -80,7 +90,7 @@ public class JourneyService {
         String sortBy = req.getSortBy() != null ? req.getSortBy().toUpperCase() : "PRICE";
         switch (sortBy) {
             case "DURATION"   -> responses.sort(Comparator.comparingInt(JourneyResponse::getDurationMinutes));
-            case "DEPARTURE"  -> responses.sort(Comparator.comparing(JourneyResponse::getDepartureTime));
+            case "DEPART", "DEPARTURE" -> responses.sort(Comparator.comparing(JourneyResponse::getDepartureTime));
             default           -> responses.sort(Comparator.comparing(JourneyResponse::getBaseFare));
         }
 
@@ -167,5 +177,16 @@ public class JourneyService {
         int h = minutes / 60;
         int m = minutes % 60;
         return h > 0 ? (h + "h " + m + "m") : (m + "m");
+    }
+
+    /**
+     * Sanitizes city input by trimming and stripping terminal/station annotations
+     * such as "Delhi — Indira Gandhi Intl (DEL)" -> "Delhi".
+     */
+    public static String cleanCityName(String raw) {
+        if (raw == null) return "";
+        String[] parts = raw.split("[—\\-\\(\\,]");
+        String candidate = parts[0].trim();
+        return candidate.isEmpty() ? raw.trim() : candidate;
     }
 }

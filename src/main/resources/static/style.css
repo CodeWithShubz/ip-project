@@ -279,7 +279,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1) opacit
     box-shadow: var(--shadow-md);
     z-index: 200;
     overflow: hidden;
-    max-height: 220px;
+    max-height: 280px;
     overflow-y: auto;
 }
 .suggestion-item {
@@ -287,8 +287,34 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1) opacit
     cursor: pointer;
     transition: background var(--tx-fast);
     font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
-.suggestion-item:hover { background: rgba(124,58,237,0.2); }
+.suggestion-item:hover,
+.suggestion-item.suggestion-active { background: rgba(124,58,237,0.2); }
+.suggestion-loading, .suggestion-empty {
+    cursor: default;
+    color: var(--clr-text-muted);
+    font-style: italic;
+    text-align: center;
+    justify-content: center;
+}
+.suggestion-type-icon { font-size: 0.8rem; flex-shrink: 0; }
+.demo-label {
+    font-size: 0.7rem;
+    color: var(--clr-text-muted);
+    margin-top: 4px;
+    opacity: 0.7;
+}
+.bjs-demo-note {
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: rgba(255,193,7,0.1);
+    border-radius: 8px;
+    font-size: 0.82rem;
+    color: var(--clr-text-muted);
+}
 
 /* ══════════════════════════════════════════════════════════════
    RESULTS SECTION

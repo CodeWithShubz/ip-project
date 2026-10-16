@@ -61,8 +61,7 @@
                     <div class="autocomplete-wrapper">
                         <span class="field-icon">📍</span>
                         <input type="text" id="origin-input" class="field-input"
-                               placeholder="Origin city" autocomplete="off"
-                               oninput="autocomplete('origin-input', 'origin-suggestions')">
+                               placeholder="Origin city" autocomplete="off">
                         <div class="suggestions" id="origin-suggestions"></div>
                     </div>
                 </div>
@@ -74,8 +73,7 @@
                     <div class="autocomplete-wrapper">
                         <span class="field-icon">🏁</span>
                         <input type="text" id="dest-input" class="field-input"
-                               placeholder="Destination city" autocomplete="off"
-                               oninput="autocomplete('dest-input', 'dest-suggestions')">
+                               placeholder="Destination city" autocomplete="off">
                         <div class="suggestions" id="dest-suggestions"></div>
                     </div>
                 </div>
@@ -84,18 +82,11 @@
                     <label class="field-label" for="travel-date">Date</label>
                     <div class="autocomplete-wrapper">
                         <span class="field-icon">📅</span>
-                        <input type="date" id="travel-date" class="field-input">
+                        <input type="text" id="travel-date" class="field-input" placeholder="DD/MM/YYYY" pattern="\d{2}/\d{2}/\d{4}">
                     </div>
                 </div>
 
-                <div class="field-group" id="field-pax">
-                    <label class="field-label" for="passengers">Passengers</label>
-                    <div class="autocomplete-wrapper">
-                        <span class="field-icon">👤</span>
-                        <input type="number" id="passengers" class="field-input"
-                               min="1" max="12" value="1">
-                    </div>
-                </div>
+
 
                 <button class="search-btn" id="search-btn" onclick="searchJourneys()">
                     <span id="search-btn-text">Search</span>
@@ -139,7 +130,7 @@
                 <div class="sort-buttons">
                     <button class="sort-btn active" id="sort-price"    onclick="sortResults('PRICE', this)">💰 Price</button>
                     <button class="sort-btn"         id="sort-duration" onclick="sortResults('DURATION', this)">⏱ Duration</button>
-                    <button class="sort-btn"         id="sort-depart"   onclick="sortResults('DEPARTURE', this)">🕐 Departure</button>
+                    <button class="sort-btn"         id="sort-departure" onclick="sortResults('DEPARTURE', this)">🕐 Departure</button>
                 </div>
             </div>
         </aside>

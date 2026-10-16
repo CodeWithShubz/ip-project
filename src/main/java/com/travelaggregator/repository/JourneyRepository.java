@@ -24,8 +24,8 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
      */
     @Query("""
             SELECT j FROM Journey j
-            WHERE LOWER(j.origin)      = LOWER(:origin)
-              AND LOWER(j.destination) = LOWER(:destination)
+            WHERE LOWER(TRIM(j.origin))      = LOWER(TRIM(:origin))
+              AND LOWER(TRIM(j.destination)) = LOWER(TRIM(:destination))
               AND j.departureTime      >= :startOfDay
               AND j.departureTime      <= :endOfDay
               AND j.availableSeats     >= :passengers

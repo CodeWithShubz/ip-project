@@ -29,7 +29,7 @@ public class Booking {
     private Long id;
 
     /** The journey being booked */
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "journey_id", nullable = false)
     private Journey journey;
 

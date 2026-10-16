@@ -4,11 +4,13 @@ import com.travelaggregator.dto.ApiResponse;
 import com.travelaggregator.dto.JourneyResponse;
 import com.travelaggregator.dto.JourneySearchRequest;
 import com.travelaggregator.service.JourneyService;
+import com.travelaggregator.service.LocationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * REST Controller for journey search operations.
@@ -21,6 +23,7 @@ import java.util.List;
 public class JourneyController {
 
     private final JourneyService journeyService;
+    private final LocationService locationService;
 
     /**
      * POST /api/journeys/search
@@ -32,7 +35,7 @@ public class JourneyController {
             @RequestBody JourneySearchRequest request) {
         List<JourneyResponse> results = journeyService.searchJourneys(request);
         String msg = results.isEmpty()
-                ? "No journeys found for this route and date."
+                ? "No journeys found for this route and date. Try a different date or route — demo data covers the next 14 days."
                 : results.size() + " journey(s) found.";
         return ResponseEntity.ok(ApiResponse.success(msg, results));
     }
@@ -47,20 +50,31 @@ public class JourneyController {
     }
 
     /**
-     * GET /api/journeys/origins
-     * Returns all distinct origin cities for autocomplete.
+     * GET /api/journeys/origins?q=del
+     * Returns matching origin cities/stations for autocomplete.
+     * Falls back to all distinct origins if no query provided.
      */
     @GetMapping("/origins")
-    public ResponseEntity<ApiResponse<List<String>>> getOrigins() {
-        return ResponseEntity.ok(ApiResponse.success(journeyService.getOrigins()));
+    public ResponseEntity<ApiResponse<List<Map<String, String>>>> getOrigins(
+            @RequestParam(required = false, defaultValue = "") String q) {
+        if (q.trim().length() >= 2) {
+            return ResponseEntity.ok(ApiResponse.success(locationService.searchLocations(q.trim())));
+        }
+        // Fallback: return all unique city names for backward compatibility
+        return ResponseEntity.ok(ApiResponse.success(locationService.getAllCities()));
     }
 
     /**
-     * GET /api/journeys/destinations
-     * Returns all distinct destination cities for autocomplete.
+     * GET /api/journeys/destinations?q=mum
+     * Returns matching destination cities/stations for autocomplete.
+     * Same data source as origins — all Indian locations.
      */
     @GetMapping("/destinations")
-    public ResponseEntity<ApiResponse<List<String>>> getDestinations() {
-        return ResponseEntity.ok(ApiResponse.success(journeyService.getDestinations()));
+    public ResponseEntity<ApiResponse<List<Map<String, String>>>> getDestinations(
+            @RequestParam(required = false, defaultValue = "") String q) {
+        if (q.trim().length() >= 2) {
+            return ResponseEntity.ok(ApiResponse.success(locationService.searchLocations(q.trim())));
+        }
+        return ResponseEntity.ok(ApiResponse.success(locationService.getAllCities()));
     }
 }

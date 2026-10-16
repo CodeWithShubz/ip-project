@@ -31,7 +31,6 @@ import java.util.stream.Collectors;
  * </pre>
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class BookingService {
 
@@ -63,6 +62,14 @@ public class BookingService {
     private final BookingRepository bookingRepository;
     private final JourneyRepository journeyRepository;
     private final JourneyService    journeyService;
+
+    public BookingService(BookingRepository bookingRepository,
+                          JourneyRepository journeyRepository,
+                          JourneyService journeyService) {
+        this.bookingRepository = bookingRepository;
+        this.journeyRepository = journeyRepository;
+        this.journeyService = journeyService;
+    }
 
     // ─── Fare Calculation (no persistence) ───────────────────────────────
 
@@ -133,12 +140,14 @@ public class BookingService {
 
     // ─── Retrieval ────────────────────────────────────────────────────────
 
+    @Transactional(readOnly = true)
     public BookingResponse getBookingByPnr(String pnr) {
         Booking b = bookingRepository.findByPnrNumber(pnr.toUpperCase())
                 .orElseThrow(() -> new ResourceNotFoundException("No booking found with PNR: " + pnr));
         return mapToResponse(b, null);
     }
 
+    @Transactional(readOnly = true)
     public List<BookingResponse> getBookingsByEmail(String email) {
         return bookingRepository
                 .findByPassengerEmailIgnoreCaseOrderByBookingDateDesc(email)

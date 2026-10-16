@@ -5,70 +5,211 @@
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const API_BASE = '/api';
+const AUTOCOMPLETE_DEBOUNCE_MS = 300;
+const AUTOCOMPLETE_MIN_CHARS  = 2;
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let allResults     = [];   // Raw results from last search
 let filteredResults = [];  // After sidebar filters applied
 let currentJourney = null; // Journey selected for booking
-let selectedMode   = '';   // '' | 'FLIGHT' | 'TRAIN' | 'BUS
+let selectedMode   = '';   // '' | 'FLIGHT' | 'TRAIN' | 'BUS'
 let fareCalcTimer  = null; // Debounce handle for fare calculation
+
+// Autocomplete state
+let acDebounceTimers = {};
+let acActiveIndex    = { 'origin-input': -1, 'dest-input': -1 };
+let acSuggestions    = { 'origin-input': [], 'dest-input': [] };
 
 // ─── DOM Ready ────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     // Set default travel date to tomorrow
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    document.getElementById('travel-date').value = tomorrow.toISOString().split('T')[0];
-    document.getElementById('travel-date').min   = new Date().toISOString().split('T')[0];
+    // Display as DD/MM/YYYY while keeping ISO format for backend conversion later
+    // Display tomorrow's date in DD/MM/YYYY format for the UI
+    const dd = String(tomorrow.getDate()).padStart(2, '0');
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const yyyy = tomorrow.getFullYear();
+    document.getElementById('travel-date').value = `${dd}/${mm}/${yyyy}`;
 
-    // Load city lists for autocomplete
-    loadCities();
+    // Attach autocomplete handlers
+    setupAutocomplete('origin-input', 'origin-suggestions', '/api/journeys/origins');
+    setupAutocomplete('dest-input',   'dest-suggestions',   '/api/journeys/destinations');
+
+    // Prevent identical origin and destination on blur/change
+    const validateDistinctCities = () => {
+        const o = document.getElementById('origin-input').value.trim();
+        const d = document.getElementById('dest-input').value.trim();
+        if (o && d && o.toLowerCase() === d.toLowerCase()) {
+            showToast('Origin and destination cannot be the same', 'error');
+        }
+    };
+    document.getElementById('origin-input').addEventListener('change', validateDistinctCities);
+    document.getElementById('dest-input').addEventListener('change', validateDistinctCities);
 
     // Close suggestions on outside click
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.autocomplete-wrapper')) {
-            document.querySelectorAll('.suggestions').forEach(el => el.innerHTML = '');
+            closeAllDropdowns();
         }
     });
 });
 
 // ─── City Autocomplete ─────────────────────────────────────────────────────────
-let allCities = [];
 
-async function loadCities() {
+function setupAutocomplete(inputId, suggestionsId, endpoint) {
+    const input    = document.getElementById(inputId);
+    const dropdown = document.getElementById(suggestionsId);
+
+    input.addEventListener('input', () => {
+        const val = input.value.trim();
+        // Clear immediately if too short
+        if (val.length < AUTOCOMPLETE_MIN_CHARS) {
+            dropdown.innerHTML = '';
+            acSuggestions[inputId] = [];
+            acActiveIndex[inputId] = -1;
+            return;
+        }
+
+        // Debounce
+        clearTimeout(acDebounceTimers[inputId]);
+        acDebounceTimers[inputId] = setTimeout(() => {
+            fetchSuggestions(inputId, suggestionsId, endpoint, val);
+        }, AUTOCOMPLETE_DEBOUNCE_MS);
+    });
+
+    // Keyboard navigation
+    input.addEventListener('keydown', (e) => {
+        const items = acSuggestions[inputId] || [];
+        if (items.length === 0) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            acActiveIndex[inputId] = Math.min(acActiveIndex[inputId] + 1, items.length - 1);
+            highlightItem(suggestionsId, acActiveIndex[inputId]);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            acActiveIndex[inputId] = Math.max(acActiveIndex[inputId] - 1, 0);
+            highlightItem(suggestionsId, acActiveIndex[inputId]);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (acActiveIndex[inputId] >= 0 && acActiveIndex[inputId] < items.length) {
+                selectSuggestion(inputId, suggestionsId, items[acActiveIndex[inputId]]);
+            } else if (items.length > 0) {
+                selectSuggestion(inputId, suggestionsId, items[0]);
+            }
+        } else if (e.key === 'Escape') {
+            dropdown.innerHTML = '';
+            acSuggestions[inputId] = [];
+            acActiveIndex[inputId] = -1;
+        }
+    });
+}
+
+async function fetchSuggestions(inputId, suggestionsId, endpoint, query) {
+    const dropdown = document.getElementById(suggestionsId);
+
+    // Show loading indicator
+    dropdown.innerHTML = '<div class="suggestion-item suggestion-loading">Searching…</div>';
+
     try {
-        const [origRes, destRes] = await Promise.all([
-            fetch(`${API_BASE}/journeys/origins`),
-            fetch(`${API_BASE}/journeys/destinations`)
-        ]);
-        const origData = await origRes.json();
-        const destData = await destRes.json();
+        const res = await fetch(`${endpoint}?q=${encodeURIComponent(query)}`);
+        if (!res.ok) {
+            dropdown.innerHTML = '<div class="suggestion-item suggestion-empty">Error loading suggestions</div>';
+            return;
+        }
+        const json = await res.json();
+        const data = json.data || [];
 
-        const origins = origData.data || [];
-        const dests   = destData.data || [];
-        allCities = [...new Set([...origins, ...dests])].sort();
+        // Deduplicate by city name and location details
+        const seen = new Set();
+        const unique = [];
+        for (const item of data) {
+            const city = typeof item === 'string' ? item : (item.city || '');
+            const display = typeof item === 'string' ? item : (item.display || city);
+            const locationType = typeof item === 'object' ? (item.locationType || '') : '';
+            const stationName  = typeof item === 'object' ? (item.stationName  || '') : '';
+            const stationCode  = typeof item === 'object' ? (item.stationCode  || '') : '';
+            const key = display.toLowerCase();
+            if (!seen.has(key) && city) {
+                seen.add(key);
+                unique.push({ city, display, locationType, stationName, stationCode });
+            }
+            if (unique.length >= 10) break;
+        }
+
+        acSuggestions[inputId] = unique;
+        acActiveIndex[inputId] = -1;
+
+        if (unique.length === 0) {
+            dropdown.innerHTML = '<div class="suggestion-item suggestion-empty">No matching cities found</div>';
+            return;
+        }
+
+        dropdown.innerHTML = unique.map((item, idx) => {
+            const typeIcon = getTypeIcon(item);
+            return `<div class="suggestion-item" data-index="${idx}"
+                         onmousedown="selectSuggestion('${inputId}', '${suggestionsId}', acSuggestions['${inputId}'][${idx}])"
+                         onmouseenter="highlightItem('${suggestionsId}', ${idx})">${typeIcon}${escapeHtml(item.display)}</div>`;
+        }).join('');
+
     } catch (e) {
-        // Fallback demo cities if API not yet reachable
-        allCities = ['Agra','Bangalore','Chennai','Delhi','Goa','Hyderabad','Kolkata','Mumbai','Pune'];
+        console.error('Autocomplete error:', e);
+        dropdown.innerHTML = '<div class="suggestion-item suggestion-empty">Failed to load suggestions</div>';
     }
 }
 
-function autocomplete(inputId, suggestionsId) {
-    const input    = document.getElementById(inputId);
-    const dropdown = document.getElementById(suggestionsId);
-    const val      = input.value.trim().toLowerCase();
-
-    if (val.length < 1) { dropdown.innerHTML = ''; return; }
-
-    const matches = allCities.filter(c => c.toLowerCase().startsWith(val)).slice(0, 8);
-    dropdown.innerHTML = matches.map(c =>
-        `<div class="suggestion-item" onclick="selectCity('${inputId}', '${suggestionsId}', '${c}')">${c}</div>`
-    ).join('');
+function getTypeIcon(item) {
+    // For simple string items
+    if (!item.locationType && !item.stationName) return '';
+    // For rich location objects
+    const type = (item.locationType || '').toUpperCase();
+    if (type.includes('AIRPORT'))  return '<span class="suggestion-type-icon">✈️</span>';
+    if (type.includes('RAILWAY'))  return '<span class="suggestion-type-icon">🚆</span>';
+    if (type.includes('BUS'))      return '<span class="suggestion-type-icon">🚌</span>';
+    return '';
 }
 
-function selectCity(inputId, suggestionsId, city) {
-    document.getElementById(inputId).value = city;
+function selectSuggestion(inputId, suggestionsId, item) {
+    const input = document.getElementById(inputId);
+    // Always use the city name for the actual value (the backend searches by city)
+    input.value = item.city || item.display || item;
     document.getElementById(suggestionsId).innerHTML = '';
+    acSuggestions[inputId] = [];
+    acActiveIndex[inputId] = -1;
+
+    // Validate: if both origin and destination are filled, check they aren't the same
+    const origin = document.getElementById('origin-input').value.trim();
+    const dest   = document.getElementById('dest-input').value.trim();
+    if (origin && dest && origin.toLowerCase() === dest.toLowerCase()) {
+        showToast('Origin and destination cannot be the same', 'error');
+    }
+}
+
+function highlightItem(suggestionsId, index) {
+    const dropdown = document.getElementById(suggestionsId);
+    const items = dropdown.querySelectorAll('.suggestion-item:not(.suggestion-loading):not(.suggestion-empty)');
+    items.forEach((el, i) => {
+        el.classList.toggle('suggestion-active', i === index);
+    });
+    // Scroll into view
+    if (items[index]) {
+        items[index].scrollIntoView({ block: 'nearest' });
+    }
+}
+
+function closeAllDropdowns() {
+    document.querySelectorAll('.suggestions').forEach(el => el.innerHTML = '');
+    Object.keys(acSuggestions).forEach(k => {
+        acSuggestions[k] = [];
+        acActiveIndex[k] = -1;
+    });
+}
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
 // ─── Mode Tabs ────────────────────────────────────────────────────────────────
@@ -79,22 +220,39 @@ function setMode(btn) {
 }
 
 function swapCities() {
+    closeAllDropdowns();
     const orig = document.getElementById('origin-input');
     const dest = document.getElementById('dest-input');
     [orig.value, dest.value] = [dest.value, orig.value];
 
     // Animate swap button
     const btn = document.getElementById('swap-btn');
-    btn.style.transform = 'rotate(180deg)';
-    setTimeout(() => btn.style.transform = '', 300);
+    if (btn) {
+        btn.style.transform = 'rotate(180deg)';
+        setTimeout(() => btn.style.transform = '', 300);
+    }
 }
 
 // ─── Search ──────────────────────────────────────────────────────────────────
 async function searchJourneys() {
     const origin      = document.getElementById('origin-input').value.trim();
     const destination = document.getElementById('dest-input').value.trim();
-    const travelDate  = document.getElementById('travel-date').value;
-    const passengers  = parseInt(document.getElementById('passengers').value) || 1;
+    const travelDateDisplay = document.getElementById('travel-date').value.trim();
+    // Validate presence
+    if (!travelDateDisplay) { showToast('Please select a travel date', 'error'); return; }
+    // Validate format DD/MM/YYYY
+    const parts = travelDateDisplay.split('/');
+    if (parts.length !== 3) { showToast('Invalid date format, use DD/MM/YYYY', 'error'); return; }
+    const [d, m, y] = parts;
+    if (!d || !m || !y) { showToast('Invalid date components', 'error'); return; }
+    // Convert to ISO for backend
+    const travelDate = `${y}-${m}-${d}`;
+    // Ensure date is in the future (or tomorrow onward)
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const selected = new Date(travelDate);
+    if (selected <= today) { showToast('Travel date must be in the future', 'error'); return; }
+    const passengers = 1; // default passenger count
 
     // Client-side validation
     if (!origin)      { showToast('Please enter an origin city', 'error'); return; }
@@ -134,7 +292,9 @@ async function searchJourneys() {
         document.getElementById('results-section').classList.remove('hidden');
         document.getElementById('results-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-        if (allResults.length === 0) showToast('No journeys found for this route.', 'info');
+        if (allResults.length === 0) {
+            showToast(json.message || 'No journeys found for this route.', 'info');
+        }
 
     } catch (err) {
         showToast('Unable to reach the server. Is Spring Boot running?', 'error');
@@ -224,6 +384,7 @@ function buildJourneyCard(j, passengers, idx) {
             <div class="price-effective">Effective: ₹${Number(effFare).toFixed(0)}</div>
             <div class="rating">${stars} ${j.rating}</div>
             <div class="seats-badge ${seatsClass}">${seatsText}</div>
+            <div class="demo-label">⚠️ Simulated fare</div>
         </div>
         <button class="book-btn" id="book-btn-${j.id}" onclick="openBookingModal(${j.id}, ${passengers})">
             Book Now
@@ -256,7 +417,7 @@ function applyFilters() {
     renderResults(
         document.getElementById('origin-input').value,
         document.getElementById('dest-input').value,
-        parseInt(document.getElementById('passengers').value) || 1
+        1
     );
 }
 
@@ -267,6 +428,7 @@ function sortResults(key, btn, skipRender = false) {
     }
     switch (key) {
         case 'DURATION':  filteredResults.sort((a, b) => a.durationMinutes - b.durationMinutes); break;
+        case 'DEPART':
         case 'DEPARTURE': filteredResults.sort((a, b) => new Date(a.departureTime) - new Date(b.departureTime)); break;
         default:          filteredResults.sort((a, b) => a.baseFare - b.baseFare);
     }
@@ -283,8 +445,12 @@ function sortResults(key, btn, skipRender = false) {
 async function openBookingModal(journeyId, passengers) {
     try {
         const res  = await fetch(`${API_BASE}/journeys/${journeyId}`);
+        if (!res.ok) {
+            const json = await res.json().catch(() => ({}));
+            showToast(json.message || 'Failed to load journey', 'error');
+            return;
+        }
         const json = await res.json();
-        if (!res.ok) { showToast(json.message || 'Failed to load journey', 'error'); return; }
         currentJourney = json.data;
     } catch (e) {
         showToast('Cannot load journey details', 'error'); return;
@@ -301,6 +467,7 @@ async function openBookingModal(journeyId, passengers) {
         <div class="bjs-item"><span class="bjs-label">Departure</span><span class="bjs-value">${dep}</span></div>
         <div class="bjs-item"><span class="bjs-label">Arrival</span><span class="bjs-value">${arr}</span></div>
         <div class="bjs-item"><span class="bjs-label">Duration</span><span class="bjs-value">${j.durationFormatted}</span></div>
+        <!-- Demo note removed for professional appearance -->
     `;
 
     // Pre-fill passenger count
@@ -351,8 +518,12 @@ async function doCalculateFare() {
                 selectedAddons
             })
         });
+        if (!res.ok) {
+            const json = await res.json().catch(() => ({}));
+            showToast(json.message || 'Fare calculation failed', 'error');
+            return;
+        }
         const json = await res.json();
-        if (!res.ok) return;
 
         const f = json.data;
         document.getElementById('bd-base').textContent    = `₹${fmt(f.baseFarePerSeat)}`;
@@ -370,6 +541,7 @@ async function doCalculateFare() {
 
     } catch (e) {
         console.error('Fare calculation failed', e);
+        showToast('Fare calculation error. Please try again.', 'error');
     } finally {
         document.getElementById('breakdown-loading').classList.add('hidden');
     }
@@ -494,7 +666,9 @@ function clearErrors() {
 }
 
 // ─── Confirmation Modal ────────────────────────────────────────────────────────
+let currentUserEmail = null;
 function showConfirmationModal(booking) {
+    currentUserEmail = booking.passengerEmail; // store for My Bookings auto-fetch
     document.getElementById('pnr-display').textContent = booking.pnrNumber;
     document.getElementById('confirm-details').innerHTML = `
         <strong>Route:</strong> ${booking.origin} → ${booking.destination}<br>
@@ -504,6 +678,7 @@ function showConfirmationModal(booking) {
         <strong>Name:</strong> ${booking.passengerName}<br>
         <strong>Email:</strong> ${booking.passengerEmail}<br>
         <strong>Total Paid:</strong> <span style="color:var(--clr-success);font-weight:700">₹${fmt(booking.totalFare)}</span>
+        <!-- Demo warning removed -->
     `;
     document.getElementById('confirm-modal-overlay').classList.remove('hidden');
 }
@@ -517,9 +692,19 @@ function closeConfirmModal() {
 function showMyBookings() {
     closeConfirmModal();
     document.getElementById('my-bookings-list').innerHTML = '';
-    document.getElementById('pnr-lookup-input').value = '';
+    const lookupInput = document.getElementById('pnr-lookup-input');
+    // Prefill with stored email if available
+    if (currentUserEmail) {
+        lookupInput.value = currentUserEmail;
+    } else {
+        lookupInput.value = '';
+    }
     document.getElementById('mybookings-modal-overlay').classList.remove('hidden');
     document.body.style.overflow = 'hidden';
+    // Auto-fetch if we have an email
+    if (currentUserEmail) {
+        lookupBookings();
+    }
 }
 
 function closeMyBookings(event) {
@@ -536,20 +721,20 @@ async function lookupBookings() {
     listEl.innerHTML = '<p style="color:var(--clr-text-muted);text-align:center;padding:20px">Loading…</p>';
 
     try {
-        let res, json;
+        let res;
         if (query.includes('@')) {
-            res  = await fetch(`${API_BASE}/bookings/email/${encodeURIComponent(query)}`);
-            json = await res.json();
+            res = await fetch(`${API_BASE}/bookings/email/${encodeURIComponent(query)}`);
         } else {
-            res  = await fetch(`${API_BASE}/bookings/pnr/${query.toUpperCase()}`);
-            json = await res.json();
+            res = await fetch(`${API_BASE}/bookings/pnr/${query.toUpperCase()}`);
         }
 
         if (!res.ok) {
+            const json = await res.json().catch(() => ({}));
             listEl.innerHTML = `<p style="color:var(--clr-danger);text-align:center;padding:20px">${json.message || 'Not found'}</p>`;
             return;
         }
 
+        const json = await res.json();
         const bookings = Array.isArray(json.data) ? json.data : [json.data];
         listEl.innerHTML = bookings.map(b => buildBookingCard(b)).join('');
 
@@ -581,8 +766,12 @@ async function cancelBooking(bookingId, pnr) {
 
     try {
         const res  = await fetch(`${API_BASE}/bookings/${bookingId}/cancel`, { method: 'PUT' });
+        if (!res.ok) {
+            const json = await res.json().catch(() => ({}));
+            showToast(json.message || 'Cancellation failed', 'error');
+            return;
+        }
         const json = await res.json();
-        if (!res.ok) { showToast(json.message || 'Cancellation failed', 'error'); return; }
 
         showToast(`Booking ${pnr} cancelled successfully.`, 'success');
         // Update card in place
