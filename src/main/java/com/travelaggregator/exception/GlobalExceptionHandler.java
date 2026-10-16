@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.time.format.DateTimeParseException;
+
 
 /**
  * Global exception handler – translates exceptions into consistent API error envelopes.
@@ -60,6 +62,15 @@ public class GlobalExceptionHandler {
         log.warn("Validation failed: {}", errors);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.validationError(errors));
+    }
+
+    /** Handles malformed LocalDate strings (e.g. dd/MM/yyyy sent instead of yyyy-MM-dd) */
+    @ExceptionHandler(DateTimeParseException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDateTimeParse(DateTimeParseException ex) {
+        log.warn("Date parse error: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(
+                        "Invalid date format. Please use yyyy-MM-dd (e.g. 2026-10-17)."));
     }
 
     /** Catch-all for unexpected errors */

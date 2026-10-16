@@ -25,12 +25,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Set default travel date to tomorrow
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    // Display as DD/MM/YYYY while keeping ISO format for backend conversion later
-    // Display tomorrow's date in DD/MM/YYYY format for the UI
-    const dd = String(tomorrow.getDate()).padStart(2, '0');
-    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const dd   = String(tomorrow.getDate()).padStart(2, '0');
+    const mm   = String(tomorrow.getMonth() + 1).padStart(2, '0');
     const yyyy = tomorrow.getFullYear();
+    // Text field shows DD/MM/YYYY
     document.getElementById('travel-date').value = `${dd}/${mm}/${yyyy}`;
+    // Hidden native picker: set minimum to today, default to tomorrow
+    const todayIso    = new Date().toISOString().split('T')[0]; // yyyy-MM-dd
+    const tomorrowIso = `${yyyy}-${mm}-${dd}`;
+    const picker = document.getElementById('travel-date-picker');
+    picker.min   = todayIso;
+    picker.value = tomorrowIso;
 
     // Attach autocomplete handlers
     setupAutocomplete('origin-input', 'origin-suggestions', '/api/journeys/origins');
@@ -49,11 +54,140 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Close suggestions on outside click
     document.addEventListener('click', (e) => {
-        if (!e.target.closest('.autocomplete-wrapper')) {
+        if (!e.target.closest('.autocomplete-wrapper') && !e.target.closest('.date-picker-wrapper')) {
             closeAllDropdowns();
         }
     });
 });
+
+// ─── Date Picker Helpers ──────────────────────────────────────────────────────
+
+/**
+ * Opens the native calendar by programmatically showing the hidden date input.
+ * Falls back gracefully in browsers that don't support showPicker().
+ */
+function openCalendar() {
+    const picker = document.getElementById('travel-date-picker');
+    try {
+        picker.showPicker();
+    } catch (e) {
+        // Fallback: make it momentarily visible and click it
+        picker.style.pointerEvents = 'auto';
+        picker.style.opacity = '0.01';
+        picker.click();
+        setTimeout(() => {
+            picker.style.pointerEvents = 'none';
+            picker.style.opacity = '0';
+        }, 200);
+    }
+}
+
+/**
+ * Called when the hidden native date picker value changes.
+ * Converts yyyy-MM-dd → DD/MM/YYYY and writes to the visible text input.
+ */
+function onNativeDateChange(picker) {
+    if (!picker.value) return;
+    const [y, m, d] = picker.value.split('-');
+    document.getElementById('travel-date').value = `${d}/${m}/${y}`;
+    setDateError('');
+}
+
+/**
+ * Auto-inserts slashes while the user types so the field guides them
+ * toward DD/MM/YYYY without being obtrusive.
+ */
+function onDateTextInput(input) {
+    let v = input.value.replace(/[^\d/]/g, ''); // allow digits and slashes only
+    // Auto-insert slashes
+    if (v.length === 2 && !v.includes('/')) v += '/';
+    else if (v.length === 5 && v.split('/').length === 2) v += '/';
+    input.value = v;
+    setDateError(''); // clear on each keystroke
+}
+
+/**
+ * On blur, validate the typed date and sync the hidden picker.
+ * Shows an inline error for invalid formats or impossible dates.
+ */
+function onDateTextBlur(input) {
+    const val = input.value.trim();
+    if (!val) return; // empty is validated at submit time
+    const iso = parseDdMmYyyy(val);
+    if (!iso) {
+        setDateError('Invalid date – use DD/MM/YYYY, e.g. 17/10/2026');
+        return;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const selected = new Date(iso);
+    if (selected <= today) {
+        setDateError('Date must be in the future');
+        return;
+    }
+    // Sync the hidden native picker
+    const picker = document.getElementById('travel-date-picker');
+    picker.value = iso;
+    setDateError('');
+}
+
+/** Show or clear the inline date error message. */
+function setDateError(msg) {
+    const el = document.getElementById('date-error-msg');
+    if (el) el.textContent = msg;
+    const input = document.getElementById('travel-date');
+    if (input) input.classList.toggle('error', !!msg);
+}
+
+/**
+ * Parse a DD/MM/YYYY string and return 'yyyy-MM-dd' (ISO) or null if invalid.
+ * Catches impossible dates like 31/02/2026.
+ */
+function parseDdMmYyyy(str) {
+    if (!str) return null;
+    const parts = str.split('/');
+    if (parts.length !== 3) return null;
+    const [dd, mm, yyyy] = parts;
+    if (!dd || !mm || !yyyy || dd.length > 2 || mm.length > 2 || yyyy.length !== 4) return null;
+    const d = parseInt(dd, 10);
+    const m = parseInt(mm, 10);
+    const y = parseInt(yyyy, 10);
+    if (isNaN(d) || isNaN(m) || isNaN(y)) return null;
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    // Use Date to catch impossible combos (e.g. 31/02/2026)
+    const dt = new Date(y, m - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() + 1 !== m || dt.getDate() !== d) return null;
+    return `${yyyy}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+
+/**
+ * Shared utility: reads the travel-date text field, validates it,
+ * and returns the ISO string for backend calls, or null on failure.
+ * Shows toast / inline error automatically.
+ */
+function getValidatedIsoDate() {
+    const raw = document.getElementById('travel-date').value.trim();
+    if (!raw) {
+        showToast('Please enter a travel date', 'error');
+        setDateError('Please enter a travel date');
+        return null;
+    }
+    const iso = parseDdMmYyyy(raw);
+    if (!iso) {
+        showToast('Invalid date – use DD/MM/YYYY, e.g. 17/10/2026', 'error');
+        setDateError('Invalid date – use DD/MM/YYYY, e.g. 17/10/2026');
+        return null;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (new Date(iso) <= today) {
+        showToast('Travel date must be in the future', 'error');
+        setDateError('Date must be in the future');
+        return null;
+    }
+    setDateError('');
+    return iso; // 'yyyy-MM-dd'
+}
 
 // ─── City Autocomplete ─────────────────────────────────────────────────────────
 
@@ -233,31 +367,31 @@ function swapCities() {
     }
 }
 
+/**
+ * Fill origin and destination from a popular-route chip click.
+ * Scrolls the search card into view and focuses the date field.
+ */
+function fillRoute(origin, destination) {
+    document.getElementById('origin-input').value = origin;
+    document.getElementById('dest-input').value   = destination;
+    closeAllDropdowns();
+    document.getElementById('search-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => document.getElementById('travel-date').focus(), 400);
+}
+
 // ─── Search ──────────────────────────────────────────────────────────────────
 async function searchJourneys() {
+    // Validate date first using shared helper (returns ISO string or null)
+    const travelDate = getValidatedIsoDate();
+    if (!travelDate) return;
+
     const origin      = document.getElementById('origin-input').value.trim();
     const destination = document.getElementById('dest-input').value.trim();
-    const travelDateDisplay = document.getElementById('travel-date').value.trim();
-    // Validate presence
-    if (!travelDateDisplay) { showToast('Please select a travel date', 'error'); return; }
-    // Validate format DD/MM/YYYY
-    const parts = travelDateDisplay.split('/');
-    if (parts.length !== 3) { showToast('Invalid date format, use DD/MM/YYYY', 'error'); return; }
-    const [d, m, y] = parts;
-    if (!d || !m || !y) { showToast('Invalid date components', 'error'); return; }
-    // Convert to ISO for backend
-    const travelDate = `${y}-${m}-${d}`;
-    // Ensure date is in the future (or tomorrow onward)
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    const selected = new Date(travelDate);
-    if (selected <= today) { showToast('Travel date must be in the future', 'error'); return; }
-    const passengers = 1; // default passenger count
+    const passengers  = 1;
 
     // Client-side validation
     if (!origin)      { showToast('Please enter an origin city', 'error'); return; }
     if (!destination) { showToast('Please enter a destination city', 'error'); return; }
-    if (!travelDate)  { showToast('Please select a travel date', 'error'); return; }
     if (origin.toLowerCase() === destination.toLowerCase()) {
         showToast('Origin and destination cannot be the same', 'error'); return;
     }
@@ -266,7 +400,9 @@ async function searchJourneys() {
     document.getElementById('results-section').classList.add('hidden');
 
     const payload = {
-        origin, destination, travelDate, passengers,
+        origin, destination,
+        travelDate, // ISO yyyy-MM-dd as expected by Spring Boot LocalDate
+        passengers,
         transportMode: selectedMode || null,
         sortBy: 'PRICE'
     };
@@ -311,6 +447,29 @@ function setSearchLoading(loading) {
     btn.disabled = loading;
     text.textContent = loading ? 'Searching…' : 'Search';
     spin.classList.toggle('hidden', !loading);
+
+    // Show skeleton cards while searching
+    if (loading) {
+        const list = document.getElementById('journey-list');
+        const none = document.getElementById('no-results');
+        if (list) {
+            list.innerHTML = Array.from({ length: 3 }).map(() => `
+            <div class="journey-card" style="opacity:1;cursor:default;pointer-events:none">
+                <div class="skeleton" style="width:48px;height:48px;border-radius:12px;flex-shrink:0"></div>
+                <div class="journey-info" style="flex:1">
+                    <div class="skeleton" style="height:12px;width:60%;margin-bottom:10px"></div>
+                    <div class="skeleton" style="height:28px;width:80%"></div>
+                    <div class="skeleton" style="height:10px;width:40%;margin-top:10px"></div>
+                </div>
+                <div style="text-align:right;min-width:110px">
+                    <div class="skeleton" style="height:28px;width:90px;margin-left:auto;margin-bottom:8px"></div>
+                    <div class="skeleton" style="height:34px;width:80px;margin-left:auto"></div>
+                </div>
+            </div>`).join('');
+        }
+        if (none) none.classList.add('hidden');
+        document.getElementById('results-section').classList.remove('hidden');
+    }
 }
 
 // ─── Results Rendering ────────────────────────────────────────────────────────
@@ -565,13 +724,23 @@ async function submitBooking(event) {
     confirmText.textContent = 'Processing…';
     confirmSpin.classList.remove('hidden');
 
+    // Convert DD/MM/YYYY display value → ISO yyyy-MM-dd for Spring Boot LocalDate
+    const travelDateIso = parseDdMmYyyy(document.getElementById('travel-date').value.trim());
+    if (!travelDateIso) {
+        showToast('Invalid travel date. Please select a valid date.', 'error');
+        confirmBtn.disabled = false;
+        confirmText.textContent = 'Confirm Booking';
+        confirmSpin.classList.add('hidden');
+        return;
+    }
+
     const payload = {
         journeyId:      currentJourney.id,
         passengerName:  document.getElementById('b-name').value.trim(),
         passengerEmail: document.getElementById('b-email').value.trim(),
         passengerPhone: document.getElementById('b-phone').value.trim(),
         passengers:     parseInt(document.getElementById('b-pax').value),
-        travelDate:     document.getElementById('travel-date').value,
+        travelDate:     travelDateIso,  // ISO yyyy-MM-dd – fixes DateTimeParseException
         selectedAddons: getSelectedAddons(),
         promoCode:      document.getElementById('promo-code').value.trim().toUpperCase() || null
     };
@@ -718,7 +887,10 @@ async function lookupBookings() {
     if (!query) { showToast('Enter a PNR or email', 'error'); return; }
 
     const listEl = document.getElementById('my-bookings-list');
-    listEl.innerHTML = '<p style="color:var(--clr-text-muted);text-align:center;padding:20px">Loading…</p>';
+    listEl.innerHTML = `<div style="display:flex;align-items:center;gap:12px;padding:24px 16px;color:var(--clr-text-muted);font-size:0.9rem">
+        <div class="spinner" style="border-top-color:var(--clr-primary);border-color:var(--clr-border)"></div>
+        Looking up bookings…
+    </div>`;
 
     try {
         let res;
@@ -812,9 +984,10 @@ function formatDateTime(dt) {
 let toastTimer = null;
 function showToast(message, type = 'info') {
     const toast = document.getElementById('toast');
-    toast.textContent = message;
+    const icons = { success: '✅ ', error: '❌ ', info: 'ℹ️ ' };
+    toast.textContent = (icons[type] || '') + message;
     toast.className   = `toast ${type}`;
     toast.classList.remove('hidden');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.add('hidden'), 4000);
+    toastTimer = setTimeout(() => toast.classList.add('hidden'), 4500);
 }

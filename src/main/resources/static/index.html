@@ -20,7 +20,7 @@
         </a>
         <nav class="nav" id="main-nav">
             <a href="#search-section"  class="nav-link" id="nav-search">Search</a>
-            <a href="#"                class="nav-link" id="nav-bookings" onclick="showMyBookings()">My Bookings</a>
+            <a href="#"                class="nav-link" id="nav-bookings" onclick="showMyBookings(); return false;">My Bookings</a>
             <a href="#about-section"  class="nav-link" id="nav-about">About</a>
         </nav>
     </div>
@@ -28,15 +28,15 @@
 
 <!-- ═══════════════════════════ HERO ════════════════════════════ -->
 <section class="hero" id="hero-section">
-    <div class="hero-bg"></div>
     <div class="hero-content container">
+        <div class="hero-eyebrow">🇮🇳 Trusted by 10L+ travellers</div>
         <h1 class="hero-title" id="hero-title">
-            Find Your <span class="gradient-text">Perfect Journey</span>
+            Find Your <span>Perfect Journey</span>
         </h1>
-        <p class="hero-subtitle">Compare flights, trains & buses across India — best fares, zero hidden costs</p>
+        <p class="hero-subtitle">Compare flights, trains &amp; buses across India — best fares, zero hidden costs</p>
 
         <!-- ── Search Card ── -->
-        <div class="search-card glass" id="search-card">
+        <div class="search-card" id="search-card">
 
             <!-- Mode Tabs -->
             <div class="mode-tabs" id="mode-tabs">
@@ -80,22 +80,41 @@
 
                 <div class="field-group" id="field-date">
                     <label class="field-label" for="travel-date">Date</label>
-                    <div class="autocomplete-wrapper">
+                    <div class="date-picker-wrapper">
                         <span class="field-icon">📅</span>
-                        <input type="text" id="travel-date" class="field-input" placeholder="DD/MM/YYYY" pattern="\d{2}/\d{2}/\d{4}">
+                        <input type="text" id="travel-date" class="field-input date-text-input"
+                               placeholder="DD/MM/YYYY" maxlength="10" autocomplete="off"
+                               oninput="onDateTextInput(this)" onblur="onDateTextBlur(this)">
+                        <!-- Hidden native date input – synced with text field -->
+                        <input type="date" id="travel-date-picker" class="date-picker-hidden"
+                               onchange="onNativeDateChange(this)" aria-label="Open calendar">
+                        <button type="button" class="calendar-btn" id="calendar-btn"
+                                onclick="openCalendar()" title="Pick a date" aria-label="Open calendar">
+                            🗓
+                        </button>
                     </div>
+                    <span class="date-error-msg" id="date-error-msg"></span>
                 </div>
-
-
 
                 <button class="search-btn" id="search-btn" onclick="searchJourneys()">
                     <span id="search-btn-text">Search</span>
                     <span id="search-spinner" class="spinner hidden"></span>
                 </button>
             </div>
+        </div><!-- End search card -->
+
+        <!-- Popular Routes -->
+        <div class="popular-routes" id="popular-routes">
+            <div class="popular-routes-inner">
+                <span class="popular-label">Popular:</span>
+                <button class="route-chip" onclick="fillRoute('Mumbai','Delhi')">📍 Mumbai → Delhi</button>
+                <button class="route-chip" onclick="fillRoute('Delhi','Bangalore')">📍 Delhi → Bangalore</button>
+                <button class="route-chip" onclick="fillRoute('Mumbai','Pune')">📍 Mumbai → Pune</button>
+                <button class="route-chip" onclick="fillRoute('Chennai','Hyderabad')">📍 Chennai → Hyderabad</button>
+                <button class="route-chip" onclick="fillRoute('Kolkata','Bhubaneswar')">📍 Kolkata → Bhubaneswar</button>
+            </div>
         </div>
-        <!-- End search card -->
-    </div>
+    </div><!-- End hero-content -->
 </section>
 
 <!-- ═════════════════════ RESULTS SECTION ═════════════════════════ -->
@@ -104,7 +123,7 @@
     <div class="results-layout">
 
         <!-- ── Sidebar Filters ── -->
-        <aside class="filter-sidebar glass" id="filter-sidebar">
+        <aside class="filter-sidebar" id="filter-sidebar">
             <h3 class="sidebar-title">Filter Results</h3>
 
             <div class="filter-group">
@@ -154,7 +173,7 @@
 
 <!-- ═══════════════════════ BOOKING MODAL ══════════════════════════ -->
 <div class="modal-overlay hidden" id="booking-modal-overlay" onclick="closeBookingModal(event)">
-    <div class="modal glass" id="booking-modal" role="dialog" aria-modal="true" aria-label="Booking Form">
+    <div class="modal" id="booking-modal" role="dialog" aria-modal="true" aria-label="Booking Form">
         <button class="modal-close" id="modal-close-btn" onclick="closeBookingModal(null)">✕</button>
 
         <h2 class="modal-title">Book Your Journey</h2>
@@ -192,7 +211,7 @@
 
             <!-- Add-ons -->
             <div class="form-section">
-                <h3 class="form-section-title">✨ Add-ons (optional)</h3>
+                <h3 class="form-section-title">✨ Add-ons <span style="font-weight:400;color:var(--clr-text-dim)">(optional)</span></h3>
                 <div class="addons-grid" id="addons-grid">
                     <label class="addon-card" id="addon-MEAL">
                         <input type="checkbox" value="MEAL" onchange="recalculateFare()">
@@ -249,7 +268,7 @@
             </div>
 
             <!-- Fare Breakdown -->
-            <div class="fare-breakdown glass" id="fare-breakdown">
+            <div class="fare-breakdown" id="fare-breakdown">
                 <h3 class="breakdown-title">💳 Fare Breakdown</h3>
                 <div class="breakdown-loading hidden" id="breakdown-loading">Calculating…</div>
                 <div id="breakdown-content">
@@ -277,7 +296,7 @@
 
 <!-- ═══════════════════ CONFIRMATION MODAL ═══════════════════════ -->
 <div class="modal-overlay hidden" id="confirm-modal-overlay">
-    <div class="modal glass confirm-modal" id="confirm-modal">
+    <div class="modal confirm-modal" id="confirm-modal">
         <div class="confirm-icon">✅</div>
         <h2 class="confirm-title">Booking Confirmed!</h2>
         <div class="pnr-box" id="pnr-display"></div>
@@ -291,7 +310,7 @@
 
 <!-- ═══════════════════ MY BOOKINGS MODAL ═══════════════════════ -->
 <div class="modal-overlay hidden" id="mybookings-modal-overlay" onclick="closeMyBookings(event)">
-    <div class="modal glass mybookings-modal" id="mybookings-modal">
+    <div class="modal mybookings-modal" id="mybookings-modal">
         <button class="modal-close" onclick="closeMyBookings(null)">✕</button>
         <h2 class="modal-title">My Bookings</h2>
         <div class="pnr-lookup">
@@ -303,28 +322,30 @@
 </div>
 
 <!-- ═══════════════════════ ABOUT SECTION ═══════════════════════ -->
-<section class="about-section container" id="about-section">
-    <h2 class="section-title">Why <span class="gradient-text">TravelAgg</span>?</h2>
-    <div class="features-grid">
-        <div class="feature-card glass">
-            <div class="feature-icon">🔍</div>
-            <h3>Unified Search</h3>
-            <p>Compare flights, trains, and buses side-by-side in a single search.</p>
-        </div>
-        <div class="feature-card glass">
-            <div class="feature-icon">💰</div>
-            <h3>Transparent Fares</h3>
-            <p>Full fare breakdown before you book — no hidden charges, ever.</p>
-        </div>
-        <div class="feature-card glass">
-            <div class="feature-icon">⚡</div>
-            <h3>Instant Confirmation</h3>
-            <p>Get your PNR instantly. Booking confirmed in under 3 seconds.</p>
-        </div>
-        <div class="feature-card glass">
-            <div class="feature-icon">🎁</div>
-            <h3>Promo Codes</h3>
-            <p>Save more with exclusive promo codes: TRAVEL10, FIRST20 & more.</p>
+<section class="about-section" id="about-section">
+    <div class="container">
+        <h2 class="section-title">Why <span class="gradient-text">TravelAgg</span>?</h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🔍</div>
+                <h3>Unified Search</h3>
+                <p>Compare flights, trains, and buses side-by-side in a single search.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">💰</div>
+                <h3>Transparent Fares</h3>
+                <p>Full fare breakdown before you book — no hidden charges, ever.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">⚡</div>
+                <h3>Instant Confirmation</h3>
+                <p>Get your PNR instantly. Booking confirmed in under 3 seconds.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🎁</div>
+                <h3>Promo Codes</h3>
+                <p>Save more with exclusive promo codes: TRAVEL10, FIRST20 &amp; more.</p>
+            </div>
         </div>
     </div>
 </section>
